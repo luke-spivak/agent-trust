@@ -234,20 +234,28 @@ scored_agents AS (
 ranked_agents AS (
   SELECT
     *,
-    LEAST(
-      100,
-      ROUND(
-        20
-        + LEAST(35, LOG(1 + feedback_events) * 12)
-        + LEAST(15, positive_feedback_events * 3)
-        - LEAST(20, negative_feedback_events * 5)
-        + LEAST(20, successful_validations * 5)
-        + IF(declared_x402, 10, 0)
-        + IF(verified_x402, 15, 0),
-        2
-      )
+    CAST(
+      LEAST(
+        100,
+        ROUND(
+          20
+          + LEAST(35, LOG(1 + feedback_events) * 12)
+          + LEAST(15, positive_feedback_events * 3)
+          - LEAST(20, negative_feedback_events * 5)
+          + LEAST(20, successful_validations * 5)
+          + IF(declared_x402, 10, 0)
+          + IF(verified_x402, 15, 0),
+          2
+        )
+      ) AS NUMERIC
     ) AS trust_score
   FROM scored_agents
+),
+final_agents AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (ORDER BY trust_score DESC) AS score_rank
+  FROM ranked_agents
 )
 SELECT
   agent_id,
@@ -281,5 +289,4 @@ SELECT
   ) AS trust_score_breakdown,
   score_version,
   CURRENT_TIMESTAMP() AS updated_at
-FROM ranked_agents
-ORDER BY trust_score DESC;
+FROM final_agents;

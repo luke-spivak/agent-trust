@@ -127,7 +127,7 @@ SELECT
   verified_x402,
   x402_endpoint,
   last_x402_verified_at,
-  trust_score,
+  CAST(trust_score AS FLOAT64) AS trust_score,
   trust_score_breakdown,
   score_version,
   updated_at

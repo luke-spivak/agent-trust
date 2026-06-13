@@ -121,6 +121,7 @@ describe("agent_scores scheduled query SQL", () => {
     expect(sql).toMatch(
       /CLUSTER BY verified_x402,\s*declared_x402,\s*trust_score/i
     );
+    expect(sql).toMatch(/AS NUMERIC \) AS trust_score/i);
   });
 
   it("keeps raw Ethereum log reads inside the scheduled query source scope", () => {

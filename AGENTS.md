@@ -16,8 +16,8 @@ Do not batch tests into later commits unless the commit is only adding shared fi
 - Do not use Vercel cron, Cloud Scheduler, app-side jobs, or API routes to refresh `agent_scores`.
 - Refresh cadence: every 15 minutes.
 - Raw Ethereum logs source: `bigquery-public-data.goog_blockchain_ethereum_mainnet_us.logs`.
-- Application BigQuery project ID: `UNCONFIRMED`.
-- Application BigQuery dataset ID: `UNCONFIRMED`.
+- Application BigQuery project ID: `agent-trust-499316`.
+- Application BigQuery dataset ID: `erc8004`.
 - Materialized table name: `agent_scores`.
 - Fully qualified materialized table: `${BIGQUERY_PROJECT_ID}.${BIGQUERY_DATASET_ID}.agent_scores`.
 
@@ -60,7 +60,7 @@ The BigQuery Scheduled Query writes one row per discoverable agent.
 | `verified_x402` | `BOOL` | Yes | True only when a live probe has verified an x402 challenge, or when trusted demo seed data marks it verified. |
 | `x402_endpoint` | `STRING` | No | Endpoint selected for live x402 verification. |
 | `last_x402_verified_at` | `TIMESTAMP` | No | Timestamp of latest successful live x402 probe. |
-| `trust_score` | `FLOAT64` | Yes | Ranking score used by the leaderboard. |
+| `trust_score` | `NUMERIC` | Yes | Ranking score used by the leaderboard. BigQuery clustering does not allow `FLOAT64`. |
 | `trust_score_breakdown` | `JSON` | Yes | Human-readable score inputs for the detail page. |
 | `score_version` | `STRING` | Yes | Version label for scoring logic. |
 | `updated_at` | `TIMESTAMP` | Yes | Scheduled-query write timestamp. |
@@ -71,8 +71,8 @@ Cluster `agent_scores` by `verified_x402`, `declared_x402`, and `trust_score`.
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `BIGQUERY_PROJECT_ID` | Yes | Billing/project ID for app queries. Currently `UNCONFIRMED`. |
-| `BIGQUERY_DATASET_ID` | Yes | Dataset containing `agent_scores`. Currently `UNCONFIRMED`. |
+| `BIGQUERY_PROJECT_ID` | Yes | Billing/project ID for app queries: `agent-trust-499316`. |
+| `BIGQUERY_DATASET_ID` | Yes | Dataset containing `agent_scores`: `erc8004`. |
 | `BIGQUERY_AGENT_SCORES_TABLE` | Yes | Defaults to `agent_scores`. |
 | `GOOGLE_CLIENT_EMAIL` | Yes in Vercel | Service account client email for BigQuery reads. |
 | `GOOGLE_PRIVATE_KEY` | Yes in Vercel | Service account private key. Preserve embedded newlines. |

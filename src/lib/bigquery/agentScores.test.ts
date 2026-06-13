@@ -53,6 +53,7 @@ describe("buildAgentScoresQuery", () => {
     );
 
     expect(query.query).toContain("FROM `PROJECT.DATASET.agent_scores`");
+    expect(query.query).toContain("CAST(trust_score AS FLOAT64) AS trust_score");
     expect(query.query).not.toContain("goog_blockchain_ethereum_mainnet_us.logs");
     expect(query.query).not.toContain("raw_logs");
     expect(query.query).not.toContain("CREATE OR REPLACE TABLE");
