@@ -13,6 +13,10 @@ const env = {
   BIGQUERY_AGENT_SCORES_TABLE: "agent_scores"
 };
 
+function normalizeSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim();
+}
+
 describe("loadBigQueryConfig", () => {
   it("rejects missing required BigQuery environment values", () => {
     expect(() =>
@@ -84,6 +88,57 @@ describe("buildAgentScoresQuery", () => {
       search: "STRING",
       verifiedX402Only: "BOOL"
     });
+  });
+
+  it("searches the materialized table by exact owner and exact agent ID", () => {
+    const query = buildAgentScoresQuery(
+      {
+        limit: 50,
+        search: "0x1111111111111111111111111111111111111111",
+        verifiedX402Only: false
+      },
+      loadBigQueryConfig(env)
+    );
+    const sql = normalizeSql(query.query);
+
+    expect(sql).toContain("LOWER(owner_address) = LOWER(@search)");
+    expect(sql).toContain("CAST(agent_id AS STRING) = @search");
+  });
+
+  it("searches the materialized table by display-name and URI substrings", () => {
+    const query = buildAgentScoresQuery(
+      {
+        limit: 50,
+        search: "needle",
+        verifiedX402Only: false
+      },
+      loadBigQueryConfig(env)
+    );
+    const sql = normalizeSql(query.query);
+
+    expect(sql).toContain(
+      "LOWER(COALESCE(display_name, '')) LIKE CONCAT('%', LOWER(@search), '%')"
+    );
+    expect(sql).toContain(
+      "LOWER(COALESCE(agent_uri, '')) LIKE CONCAT('%', LOWER(@search), '%')"
+    );
+  });
+
+  it("applies the verified x402 toggle through a bound boolean parameter", () => {
+    const query = buildAgentScoresQuery(
+      {
+        limit: 50,
+        search: null,
+        verifiedX402Only: true
+      },
+      loadBigQueryConfig(env)
+    );
+
+    expect(normalizeSql(query.query)).toContain(
+      "AND (@verifiedX402Only = FALSE OR verified_x402 = TRUE)"
+    );
+    expect(query.params.verifiedX402Only).toBe(true);
+    expect(query.types.verifiedX402Only).toBe("BOOL");
   });
 });
 

@@ -156,6 +156,98 @@ h3 {
   line-height: 1.3;
 }
 
+.filter-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 14px;
+}
+
+.filter-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.search-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.search-field label,
+.toggle-control {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.search-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--foreground);
+  font: inherit;
+  padding: 9px 11px;
+}
+
+.search-field input:focus-visible,
+.toggle-control input:focus-visible,
+.filter-submit:focus-visible,
+.filter-clear:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.22);
+  outline-offset: 2px;
+}
+
+.toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.toggle-control input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+}
+
+.filter-submit,
+.filter-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border-radius: 8px;
+  padding: 9px 13px;
+  font-size: 0.875rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.filter-submit {
+  border: 1px solid var(--accent-strong);
+  background: var(--accent-strong);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.filter-clear {
+  border: 1px solid var(--line);
+  color: var(--accent-strong);
+}
+
 .leaderboard-panel,
 .loading-panel {
   border: 1px solid var(--line);
@@ -350,6 +442,18 @@ h3 {
   .leaderboard-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .toggle-control {
+    white-space: normal;
+  }
+
+  .filter-actions {
+    flex-wrap: wrap;
   }
 }
 

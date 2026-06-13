@@ -45,6 +45,19 @@ function makeAgentScore(overrides: Partial<AgentScore>): AgentScore {
   };
 }
 
+type SearchParams = Record<string, string | string[] | undefined>;
+type HomeWithSearchParams = (props?: {
+  searchParams?: Promise<SearchParams> | SearchParams;
+}) => ReturnType<typeof Home>;
+
+async function renderHome(searchParams: SearchParams = {}) {
+  render(
+    await (Home as unknown as HomeWithSearchParams)({
+      searchParams: Promise.resolve(searchParams)
+    })
+  );
+}
+
 describe("leaderboard page", () => {
   afterEach(() => {
     listAgentScoresMock.mockReset();
@@ -118,6 +131,80 @@ describe("leaderboard page", () => {
 
     expect(screen.getByText("Paywall Pilot")).toBeVisible();
     expect(screen.getByText("Declares x402")).toBeVisible();
+  });
+
+  it.each([
+    [
+      "owner exact match",
+      "0xabc0000000000000000000000000000000000000",
+      { owner_address: "0xabc0000000000000000000000000000000000000" }
+    ],
+    ["agent ID exact match", "42", { agent_id: "42" }],
+    ["display-name substring", "Needle", { display_name: "Needle Scout" }],
+    ["URI substring", "needle.example", { agent_uri: "https://needle.example/x402" }]
+  ])("passes %s search to the materialized query", async (_label, q, overrides) => {
+    listAgentScoresMock.mockResolvedValue([
+      makeAgentScore({
+        ...overrides,
+        display_name: overrides.display_name ?? "Needle Scout"
+      })
+    ]);
+
+    await renderHome({ q });
+
+    expect(listAgentScoresMock).toHaveBeenCalledWith({
+      filters: {
+        limit: 50,
+        search: q,
+        verifiedX402Only: false
+      }
+    });
+    expect(screen.getByLabelText("Search agents")).toHaveValue(q);
+  });
+
+  it("passes the verified x402 toggle to the materialized query", async () => {
+    listAgentScoresMock.mockResolvedValue([
+      makeAgentScore({
+        display_name: "Verified Pay Agent",
+        declared_x402: true,
+        verified_x402: true
+      })
+    ]);
+
+    await renderHome({
+      q: "Verified Pay",
+      x402: "verified"
+    });
+
+    expect(listAgentScoresMock).toHaveBeenCalledWith({
+      filters: {
+        limit: 50,
+        search: "Verified Pay",
+        verifiedX402Only: true
+      }
+    });
+    expect(screen.getByLabelText("Search agents")).toHaveAttribute("name", "q");
+    expect(screen.getByLabelText("Search agents")).toHaveValue("Verified Pay");
+    expect(screen.getByRole("checkbox", { name: "Verified x402 only" })).toHaveAttribute(
+      "name",
+      "x402"
+    );
+    expect(screen.getByRole("checkbox", { name: "Verified x402 only" })).toHaveAttribute(
+      "value",
+      "verified"
+    );
+    expect(screen.getByRole("checkbox", { name: "Verified x402 only" })).toBeChecked();
+  });
+
+  it("renders a filtered empty state when search filters match no rows", async () => {
+    listAgentScoresMock.mockResolvedValue([]);
+
+    await renderHome({ q: "missing-agent" });
+
+    expect(screen.getByText("No matching agents")).toBeVisible();
+    expect(
+      screen.getByText("Try a different owner, agent ID, name, URI, or x402 filter.")
+    ).toBeVisible();
   });
 
   it("renders the loading state", () => {

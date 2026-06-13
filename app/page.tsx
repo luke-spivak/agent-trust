@@ -3,6 +3,17 @@ import { listAgentScores, type AgentScore } from "../src/lib/bigquery/agentScore
 
 export const dynamic = "force-dynamic";
 
+type SearchParams = Record<string, string | string[] | undefined>;
+
+type PageProps = {
+  searchParams?: Promise<SearchParams>;
+};
+
+type LeaderboardFilters = {
+  search: string | null;
+  verifiedX402Only: boolean;
+};
+
 const guardrails = [
   {
     label: "Refresh",
@@ -18,14 +29,20 @@ const guardrails = [
   }
 ];
 
-export default async function Home() {
+export default async function Home(props: PageProps) {
+  const filters = parseLeaderboardFilters(
+    await resolveSearchParams(props?.searchParams)
+  );
+  const hasActiveFilters = Boolean(filters.search || filters.verifiedX402Only);
   let rows: AgentScore[] = [];
   let loadError = false;
 
   try {
     rows = await listAgentScores({
       filters: {
-        limit: 50
+        limit: 50,
+        search: filters.search,
+        verifiedX402Only: filters.verifiedX402Only
       }
     });
   } catch {
@@ -60,6 +77,8 @@ export default async function Home() {
           ))}
         </section>
 
+        <SearchFilters filters={filters} />
+
         <section className="leaderboard-panel" aria-labelledby="leaderboard-title">
           <div className="leaderboard-heading">
             <div>
@@ -76,6 +95,11 @@ export default async function Home() {
               title="Leaderboard unavailable"
               message="The materialized agent_scores table could not be loaded."
             />
+          ) : rows.length === 0 && hasActiveFilters ? (
+            <StateMessage
+              title="No matching agents"
+              message="Try a different owner, agent ID, name, URI, or x402 filter."
+            />
           ) : rows.length === 0 ? (
             <StateMessage
               title="No agents indexed yet"
@@ -87,6 +111,49 @@ export default async function Home() {
         </section>
       </div>
     </main>
+  );
+}
+
+function SearchFilters({ filters }: { filters: LeaderboardFilters }) {
+  const hasActiveFilters = Boolean(filters.search || filters.verifiedX402Only);
+
+  return (
+    <section className="filter-panel" aria-label="Search and filters">
+      <form className="filter-form" action="/" method="get">
+        <div className="search-field">
+          <label htmlFor="leaderboard-search">Search agents</label>
+          <input
+            id="leaderboard-search"
+            name="q"
+            type="search"
+            autoComplete="off"
+            defaultValue={filters.search ?? ""}
+            placeholder="Owner, agent ID, name, or URI"
+          />
+        </div>
+
+        <label className="toggle-control">
+          <input
+            type="checkbox"
+            name="x402"
+            value="verified"
+            defaultChecked={filters.verifiedX402Only}
+          />
+          <span>Verified x402 only</span>
+        </label>
+
+        <div className="filter-actions">
+          <button className="filter-submit" type="submit">
+            Apply
+          </button>
+          {hasActiveFilters ? (
+            <Link className="filter-clear" href="/">
+              Clear
+            </Link>
+          ) : null}
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -187,4 +254,34 @@ function shortenAddress(address: string): string {
   }
 
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+async function resolveSearchParams(
+  searchParams: PageProps["searchParams"]
+): Promise<SearchParams> {
+  if (!searchParams) {
+    return {};
+  }
+
+  return searchParams;
+}
+
+function parseLeaderboardFilters(searchParams: SearchParams): LeaderboardFilters {
+  return {
+    search: readSearchParam(searchParams.q),
+    verifiedX402Only: readVerifiedX402Param(searchParams.x402)
+  };
+}
+
+function readSearchParam(value: string | string[] | undefined): string | null {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const trimmedValue = rawValue?.trim();
+
+  return trimmedValue ? trimmedValue : null;
+}
+
+function readVerifiedX402Param(value: string | string[] | undefined): boolean {
+  const normalizedValue = readSearchParam(value)?.toLowerCase();
+
+  return normalizedValue === "verified";
 }
