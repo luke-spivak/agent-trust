@@ -19,21 +19,48 @@ Do not batch tests into later commits unless the commit is only adding shared fi
 - Application BigQuery project ID: `agent-trust-499316`.
 - Application BigQuery dataset ID: `erc8004`.
 - Materialized table name: `agent_scores`.
+- Incremental raw event staging table: `agent_score_raw_events`.
 - Fully qualified materialized table: `${BIGQUERY_PROJECT_ID}.${BIGQUERY_DATASET_ID}.agent_scores`.
 
-The app and Vercel API routes must query only the materialized `agent_scores` table. Raw log reads belong only in the BigQuery Scheduled Query.
+The app and Vercel API routes must query only the materialized `agent_scores` table. Raw log reads belong only in the BigQuery Scheduled Query. The scheduled query backfills/stages raw ERC-8004 events once, then scans from the staged table watermark with a reorg buffer before rebuilding `agent_scores`.
 
 ## ERC-8004 Registries
 
-Official EF registry addresses must be confirmed from ERC-8004, ETHGlobal/Google sponsor materials, or Etherscan before implementation proceeds past the registry gate.
+Official registry addresses were checked against the `erc-8004/erc-8004-contracts` README and Etherscan contract-creation transactions. The official 8004.org FAQ says the Validation Registry is still undergoing technical due diligence and is not yet available, so scheduled queries must not scan validation logs until an official deployment exists.
 
-| Registry | Address | Deployment block |
-| --- | --- | --- |
-| Identity Registry | `UNCONFIRMED` | `UNCONFIRMED` |
-| Reputation Registry | `UNCONFIRMED` | `UNCONFIRMED` |
-| Validation Registry | `UNCONFIRMED` | `UNCONFIRMED` |
+| Registry | Address | Deployment block | Status |
+| --- | --- | --- | --- |
+| Identity Registry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | `24339871` | Available on Ethereum mainnet. |
+| Reputation Registry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` | `24339873` | Available on Ethereum mainnet. |
+| Validation Registry | None | None | Not deployed/available yet. |
 
 Event topic hashes must be verified against the deployed contract ABI with `cast keccak` or ABI tooling before scheduled-query SQL is treated as production-ready.
+
+| Event | Signature | Topic hash |
+| --- | --- | --- |
+| `Registered` | `Registered(uint256,string,address)` | `0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a` |
+| `URIUpdated` | `URIUpdated(uint256,string,address)` | `0x3a2c7fffc2cba7582c690e3b82c453ea02a308326a98a3ad7576c606336409fb` |
+| `MetadataSet` | `MetadataSet(uint256,string,string,bytes)` | `0x2c149ed548c6d2993cd73efe187df6eccabe4538091b33adbd25fafdb8a1468b` |
+| `Transfer` | `Transfer(address,address,uint256)` | `0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef` |
+| `NewFeedback` | `NewFeedback(uint256,address,uint64,int128,uint8,string,string,string,string,string,bytes32)` | `0x6a4a61743519c9d648a14e6493f47dbe3ff1aa29e7785c96c8326a205e58febc` |
+| `FeedbackRevoked` | `FeedbackRevoked(uint256,address,uint64)` | `0x25156fd3288212246d8b008d5921fde376c71ed14ac2e072a506eb06fde6d09d` |
+| `ResponseAppended` | `ResponseAppended(uint256,address,uint64,address,string,bytes32)` | `0xb1c6be0b5b8aef6539e2fac0fd131a2faa7b49edf8e505b5eb0ad487d56051d4` |
+| `ValidationRequest` | `ValidationRequest(address,uint256,string,bytes32)` | `0x530436c3634a98e1e626b0898be2f1e9980cc1bd2a78c07a0aba52d0a48a5059` |
+| `ValidationResponse` | `ValidationResponse(address,uint256,bytes32,uint8,string,bytes32,string)` | `0xafddf629e874ccc3963b6a888c477bd464a6c8525024fc88759ea3b2326349ae` |
+
+BigQuery count gate against `bigquery-public-data.goog_blockchain_ethereum_mainnet_us.logs` with the confirmed Identity/Reputation address, block, timestamp, and topic filters:
+
+| Topic | Count | First block | Last observed block |
+| --- | ---: | ---: | ---: |
+| Identity `MetadataSet` | `52789` | `24339925` | `25309299` |
+| Identity `URIUpdated` | `1365` | `24341020` | `25304064` |
+| Identity `Registered` | `34556` | `24339925` | `25309299` |
+| Identity `Transfer` | `49305` | `24339925` | `25309299` |
+| Reputation `NewFeedback` | `3173` | `24341987` | `25302040` |
+| Reputation `ResponseAppended` | `37` | `24342333` | `24975917` |
+| Reputation `FeedbackRevoked` | `0` | n/a | n/a |
+
+The filtered full backfill dry run estimated `197368324020` bytes. The scheduled query must use `agent_score_raw_events` watermarks for 15-minute runs instead of repeatedly scanning the full public log range.
 
 ## `agent_scores` Schema
 
@@ -49,7 +76,7 @@ The BigQuery Scheduled Query writes one row per discoverable agent.
 | `registered_at_timestamp` | `TIMESTAMP` | No | Block timestamp when available from the source query. |
 | `identity_registry_address` | `STRING` | Yes | Lowercase registry address used for provenance. |
 | `reputation_registry_address` | `STRING` | Yes | Lowercase registry address used for provenance. |
-| `validation_registry_address` | `STRING` | Yes | Lowercase registry address used for provenance. |
+| `validation_registry_address` | `STRING` | No | Null until an official Validation Registry deployment exists. |
 | `feedback_events` | `INT64` | Yes | Count of non-revoked feedback events. |
 | `positive_feedback_events` | `INT64` | Yes | Count of non-revoked positive feedback events, if decodable. |
 | `negative_feedback_events` | `INT64` | Yes | Count of non-revoked negative feedback events, if decodable. |

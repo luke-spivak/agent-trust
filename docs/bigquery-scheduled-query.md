@@ -5,9 +5,11 @@
 ## Preconditions
 
 1. Replace `PROJECT` and `DATASET` in `bigquery/agent_scores_scheduled_query.sql` with the confirmed BigQuery project and dataset IDs.
-2. Replace all `UNCONFIRMED` registry addresses, deployment blocks, event signatures, and topic hashes only after checking sponsor materials or Etherscan.
-3. Run the count gate from `PLAN.md`. If `distinct_registered_agents < 20`, stop and ask sponsors for the intended address set.
-4. Confirm the scheduled-query service account can read `bigquery-public-data.goog_blockchain_ethereum_mainnet_us.logs` and write `PROJECT.DATASET.agent_scores`.
+2. Use the confirmed Ethereum mainnet Identity Registry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` from block `24339871`.
+3. Use the confirmed Ethereum mainnet Reputation Registry `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` from block `24339873`.
+4. Do not add Validation Registry log reads until an official deployment address exists.
+5. Run the count gate after changing registry filters. The confirmed-filter backfill dry run was `197368324020` bytes, so the 15-minute schedule must use the staged raw-event watermark path.
+6. Confirm the scheduled-query service account can read `bigquery-public-data.goog_blockchain_ethereum_mainnet_us.logs` and write `PROJECT.DATASET.agent_score_raw_events` and `PROJECT.DATASET.agent_scores`.
 
 ## Create The Schedule
 
@@ -25,7 +27,9 @@ PY
 )"'"}'
 ```
 
-The query writes `PROJECT.DATASET.agent_scores` with `CREATE OR REPLACE TABLE` and clusters the materialized table by `verified_x402`, `declared_x402`, and `trust_score`.
+The query first incrementally merges matching ERC-8004 logs into `PROJECT.DATASET.agent_score_raw_events`, partitioned by `block_timestamp` and clustered by address/topic/block. It then writes `PROJECT.DATASET.agent_scores` with `CREATE OR REPLACE TABLE` and clusters the materialized table by `verified_x402`, `declared_x402`, and `trust_score`.
+
+The first run backfills from the registry deployment blocks. Later 15-minute runs use the maximum staged block/timestamp minus a reorg buffer, avoiding repeated full-history scans of the public logs table.
 
 ## App Boundary
 

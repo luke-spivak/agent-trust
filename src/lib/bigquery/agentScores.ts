@@ -24,7 +24,7 @@ export type AgentScore = {
   registered_at_timestamp: string | null;
   identity_registry_address: string;
   reputation_registry_address: string;
-  validation_registry_address: string;
+  validation_registry_address: string | null;
   feedback_events: number;
   positive_feedback_events: number;
   negative_feedback_events: number;

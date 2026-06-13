@@ -9,52 +9,67 @@ const docsPath = join(repoRoot, "docs", "bigquery-scheduled-query.md");
 
 const requiredSqlFeatures = [
   {
-    name: "topic matching",
+    name: "incremental raw event staging",
     patterns: [
-      "DECLARE registered_topic STRING",
-      "DECLARE new_feedback_topic STRING",
-      "DECLARE feedback_revoked_topic STRING",
-      "DECLARE validation_request_topic STRING",
-      "DECLARE validation_response_topic STRING",
-      "topics[SAFE_OFFSET(0)] IN",
-      "LOWER(address) = LOWER(identity_registry)",
-      "LOWER(address) = LOWER(reputation_registry)",
-      "LOWER(address) = LOWER(validation_registry)"
+      "CREATE TABLE IF NOT EXISTS `PROJECT.DATASET.agent_score_raw_events`",
+      "PARTITION BY DATE(block_timestamp)",
+      "MERGE `PROJECT.DATASET.agent_score_raw_events`",
+      "DECLARE refresh_from_block INT64",
+      "DECLARE refresh_from_timestamp TIMESTAMP",
+      "DECLARE reorg_buffer_blocks INT64"
     ]
   },
   {
-    name: "registration decoding",
+    name: "topic matching",
+    patterns: [
+      "DECLARE registered_topic STRING",
+      "DECLARE uri_updated_topic STRING",
+      "DECLARE transfer_topic STRING",
+      "DECLARE new_feedback_topic STRING",
+      "DECLARE feedback_revoked_topic STRING",
+      "topics[SAFE_OFFSET(0)] IN",
+      "LOWER(address) = LOWER(identity_registry)",
+      "LOWER(address) = LOWER(reputation_registry)"
+    ]
+  },
+  {
+    name: "registration, URI, and owner decoding",
     patterns: [
       "registrations AS",
+      "uri_updates AS",
+      "latest_agent_uris AS",
+      "transfer_events AS",
+      "active_owners AS",
       "active_registrations AS",
       "ROW_NUMBER() OVER",
       "registered_at_block",
       "owner_address",
-      "display_name",
-      "agent_uri"
+      "agent_uri",
+      "abi_string(data, 0)"
     ]
   },
   {
-    name: "feedback and revocation exclusion",
+    name: "ABI-correct feedback and revocation exclusion",
     patterns: [
       "feedback_events AS",
       "revoked_feedback AS",
       "non_revoked_feedback AS",
       "LEFT JOIN revoked_feedback",
-      "revoked.feedback_id IS NULL",
+      "revoked.feedback_key IS NULL",
+      "abi_int_to_float(data, 1)",
+      "abi_uint_to_string(data, 0)",
       "positive_feedback_events",
       "negative_feedback_events"
     ]
   },
   {
-    name: "validation summaries",
+    name: "validation disabled until official deployment",
     patterns: [
-      "validation_requests AS",
-      "validation_responses AS",
-      "validation_summary AS",
+      "CAST(NULL AS STRING) AS validation_registry_address",
+      "0 AS validation_requests",
+      "0 AS validation_responses",
       "successful_validations",
-      "validation_request_events",
-      "validation_response_events"
+      "Validation Registry is not yet available"
     ]
   },
   {
@@ -134,6 +149,29 @@ describe("agent_scores scheduled query SQL", () => {
     expect(sql).not.toContain("vercel");
     expect(sql).not.toContain("Cloud Scheduler");
     expect(sql).not.toContain("cloudscheduler");
+  });
+
+  it("does not scan Validation Registry logs while there is no official deployment", () => {
+    const sql = readSql();
+
+    expect(sql).not.toContain("DECLARE validation_registry STRING");
+    expect(sql).not.toContain("LOWER(address) = LOWER(validation_registry)");
+    expect(sql).not.toContain("validation_request_topic");
+    expect(sql).not.toContain("validation_response_topic");
+  });
+
+  it("uses the staged raw events table for scoring after the public log merge", () => {
+    const sql = readSql();
+    const compact = compactSql(sql);
+
+    expect(compact).toMatch(
+      /MERGE `PROJECT\.DATASET\.agent_score_raw_events` AS target USING \( SELECT/
+    );
+    expect(compact).toMatch(
+      /FROM `PROJECT\.DATASET\.agent_score_raw_events`/
+    );
+    expect(compact).toMatch(/block_timestamp >= refresh_from_timestamp/);
+    expect(compact).toMatch(/block_number >= refresh_from_block/);
   });
 
   it.each(requiredSqlFeatures)("covers $name", ({ patterns }) => {

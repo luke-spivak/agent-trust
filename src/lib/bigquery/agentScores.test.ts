@@ -99,7 +99,7 @@ describe("listAgentScores", () => {
         registered_at_timestamp: null,
         identity_registry_address: "0x2222222222222222222222222222222222222222",
         reputation_registry_address: "0x3333333333333333333333333333333333333333",
-        validation_registry_address: "0x4444444444444444444444444444444444444444",
+        validation_registry_address: null,
         feedback_events: 4,
         positive_feedback_events: 3,
         negative_feedback_events: 1,

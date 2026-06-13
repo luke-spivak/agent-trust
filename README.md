@@ -31,8 +31,8 @@ npm run build
 
 ## Environment
 
-See `.env.example` and `AGENTS.md` for required variables. Values marked `UNCONFIRMED` must be verified before production use.
+See `.env.example` and `AGENTS.md` for required variables. Values marked `UNCONFIRMED` are limited to x402 demo payment fields that still need sponsor/spec confirmation.
 
 ## Next Implementation Step
 
-Add the verified registry configuration gate. Write the test first; the implementation is done when the test passes.
+Continue with the app/API implementation against the materialized `agent_scores` table. Write the test first; the implementation is done when the test passes.
