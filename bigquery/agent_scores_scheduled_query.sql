@@ -150,6 +150,12 @@ OPTIONS (
   expiration_timestamp = NULL
 );
 
+ALTER TABLE `PROJECT.DATASET.agent_score_raw_events`
+SET OPTIONS (
+  expiration_timestamp = NULL,
+  partition_expiration_days = NULL
+);
+
 SET refresh_from_block = (
   SELECT
     GREATEST(
@@ -488,3 +494,8 @@ SELECT
   score_version,
   CURRENT_TIMESTAMP() AS updated_at
 FROM final_agents;
+
+ALTER TABLE `PROJECT.DATASET.agent_scores`
+SET OPTIONS (
+  expiration_timestamp = NULL
+);

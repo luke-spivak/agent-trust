@@ -13,6 +13,8 @@ const requiredSqlFeatures = [
     patterns: [
       "CREATE TABLE IF NOT EXISTS `PROJECT.DATASET.agent_score_raw_events`",
       "PARTITION BY DATE(block_timestamp)",
+      "ALTER TABLE `PROJECT.DATASET.agent_score_raw_events`",
+      "partition_expiration_days = NULL",
       "MERGE `PROJECT.DATASET.agent_score_raw_events`",
       "DECLARE refresh_from_block INT64",
       "DECLARE refresh_from_timestamp TIMESTAMP",
@@ -137,6 +139,7 @@ describe("agent_scores scheduled query SQL", () => {
       /CLUSTER BY verified_x402,\s*declared_x402,\s*trust_score/i
     );
     expect(sql).toMatch(/OPTIONS \( expiration_timestamp = NULL \)/i);
+    expect(sql).toContain("ALTER TABLE `PROJECT.DATASET.agent_scores`");
     expect(sql).toMatch(/AS NUMERIC \) AS trust_score/i);
   });
 
