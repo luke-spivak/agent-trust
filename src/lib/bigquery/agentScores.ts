@@ -47,7 +47,7 @@ export type AgentScoreFilters = {
   limit?: number;
 };
 
-export type BigQueryQueryOptions = {
+export type AgentScoresListQueryOptions = {
   query: string;
   params: {
     search: string | null;
@@ -61,6 +61,20 @@ export type BigQueryQueryOptions = {
   };
 };
 
+export type AgentScoreByIdQueryOptions = {
+  query: string;
+  params: {
+    agentId: string;
+  };
+  types: {
+    agentId: "STRING";
+  };
+};
+
+export type BigQueryQueryOptions =
+  | AgentScoresListQueryOptions
+  | AgentScoreByIdQueryOptions;
+
 export type BigQueryQueryClient = {
   query(options: BigQueryQueryOptions): Promise<[AgentScore[]]>;
 };
@@ -72,8 +86,40 @@ export type ListAgentScoresOptions = {
   filters?: AgentScoreFilters;
 };
 
+export type GetAgentScoreByIdOptions = {
+  agentId: string;
+  client?: BigQueryQueryClient;
+  config?: BigQueryConfig;
+  env?: BigQueryEnv;
+};
+
 const DEFAULT_AGENT_SCORES_TABLE = "agent_scores";
 const MAX_QUERY_LIMIT = 100;
+const AGENT_SCORE_SELECT_FIELDS = `
+  agent_id,
+  owner_address,
+  display_name,
+  agent_uri,
+  registered_at_block,
+  registered_at_timestamp,
+  identity_registry_address,
+  reputation_registry_address,
+  validation_registry_address,
+  feedback_events,
+  positive_feedback_events,
+  negative_feedback_events,
+  validation_requests,
+  validation_responses,
+  successful_validations,
+  declared_x402,
+  verified_x402,
+  x402_endpoint,
+  last_x402_verified_at,
+  CAST(trust_score AS FLOAT64) AS trust_score,
+  trust_score_breakdown,
+  score_version,
+  updated_at
+`.trim();
 
 export function loadBigQueryConfig(env: BigQueryEnv = process.env): BigQueryConfig {
   const projectId = readRequiredEnv("BIGQUERY_PROJECT_ID", env);
@@ -108,29 +154,7 @@ export function buildAgentScoresQuery(
   return {
     query: `
 SELECT
-  agent_id,
-  owner_address,
-  display_name,
-  agent_uri,
-  registered_at_block,
-  registered_at_timestamp,
-  identity_registry_address,
-  reputation_registry_address,
-  validation_registry_address,
-  feedback_events,
-  positive_feedback_events,
-  negative_feedback_events,
-  validation_requests,
-  validation_responses,
-  successful_validations,
-  declared_x402,
-  verified_x402,
-  x402_endpoint,
-  last_x402_verified_at,
-  CAST(trust_score AS FLOAT64) AS trust_score,
-  trust_score_breakdown,
-  score_version,
-  updated_at
+  ${AGENT_SCORE_SELECT_FIELDS}
 FROM \`${config.agentScoresTableRef}\`
 WHERE (
   @search IS NULL
@@ -153,6 +177,29 @@ LIMIT @limit
       search: "STRING",
       verifiedX402Only: "BOOL",
       limit: "INT64"
+    }
+  };
+}
+
+export function buildAgentScoreByIdQuery(
+  agentId: string,
+  config: BigQueryConfig = loadBigQueryConfig()
+): AgentScoreByIdQueryOptions {
+  const normalizedAgentId = normalizeAgentId(agentId);
+
+  return {
+    query: `
+SELECT
+  ${AGENT_SCORE_SELECT_FIELDS}
+FROM \`${config.agentScoresTableRef}\`
+WHERE agent_id = @agentId
+LIMIT 1
+`.trim(),
+    params: {
+      agentId: normalizedAgentId
+    },
+    types: {
+      agentId: "STRING"
     }
   };
 }
@@ -200,6 +247,20 @@ export async function listAgentScores({
   return rows;
 }
 
+export async function getAgentScoreById({
+  agentId,
+  client,
+  config,
+  env
+}: GetAgentScoreByIdOptions): Promise<AgentScore | null> {
+  const resolvedConfig = config ?? loadBigQueryConfig(env);
+  const resolvedClient = client ?? createBigQueryClient(env, resolvedConfig);
+  const query = buildAgentScoreByIdQuery(agentId, resolvedConfig);
+  const [rows] = await resolvedClient.query(query);
+
+  return rows[0] ?? null;
+}
+
 function readRequiredEnv(name: keyof BigQueryEnv, env: BigQueryEnv): string {
   const value = env[name]?.trim();
 
@@ -216,6 +277,16 @@ function normalizeSearch(search: AgentScoreFilters["search"]): string | null {
   }
 
   return search.trim();
+}
+
+function normalizeAgentId(agentId: string): string {
+  const normalizedAgentId = agentId.trim();
+
+  if (!normalizedAgentId) {
+    throw new Error("agentId is required");
+  }
+
+  return normalizedAgentId;
 }
 
 function normalizeLimit(limit: AgentScoreFilters["limit"]): number {

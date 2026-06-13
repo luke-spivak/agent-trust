@@ -175,7 +175,9 @@ function LeaderboardTable({ rows }: { rows: AgentScore[] }) {
             <tr key={row.agent_id}>
               <td>
                 <div className="agent-cell">
-                  <strong>{row.display_name || `Agent #${row.agent_id}`}</strong>
+                  <Link className="agent-link" href={`/agents/${row.agent_id}`}>
+                    {row.display_name || `Agent #${row.agent_id}`}
+                  </Link>
                   <span>{row.agent_uri || "No on-chain URI"}</span>
                 </div>
               </td>

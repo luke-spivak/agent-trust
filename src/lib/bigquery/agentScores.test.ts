@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildAgentScoreByIdQuery,
   buildAgentScoresQuery,
+  getAgentScoreById,
   listAgentScores,
   loadBigQueryConfig,
   type AgentScore,
@@ -142,6 +144,30 @@ describe("buildAgentScoresQuery", () => {
   });
 });
 
+describe("buildAgentScoreByIdQuery", () => {
+  it("targets one agent by exact ID in only the materialized agent_scores table", () => {
+    const query = buildAgentScoreByIdQuery("42", loadBigQueryConfig(env));
+    const sql = normalizeSql(query.query);
+
+    expect(sql).toContain("FROM `PROJECT.DATASET.agent_scores`");
+    expect(sql).toContain("WHERE agent_id = @agentId");
+    expect(sql).toContain("LIMIT 1");
+    expect(sql).not.toContain("goog_blockchain_ethereum_mainnet_us.logs");
+    expect(sql).not.toContain("raw_logs");
+    expect(sql).not.toContain("CREATE OR REPLACE TABLE");
+  });
+
+  it("binds the agent ID instead of interpolating it", () => {
+    const injection = "42' OR TRUE --";
+    const query = buildAgentScoreByIdQuery(injection, loadBigQueryConfig(env));
+
+    expect(query.query).toContain("@agentId");
+    expect(query.query).not.toContain(injection);
+    expect(query.params).toEqual({ agentId: injection });
+    expect(query.types).toEqual({ agentId: "STRING" });
+  });
+});
+
 describe("listAgentScores", () => {
   it("runs the parameterized agent_scores query and returns typed rows", async () => {
     const rows: AgentScore[] = [
@@ -202,3 +228,72 @@ describe("listAgentScores", () => {
     });
   });
 });
+
+describe("getAgentScoreById", () => {
+  it("returns the first matching materialized agent row", async () => {
+    const row = makeAgentScore({
+      agent_id: "42",
+      display_name: "Detail Agent"
+    });
+    const client: BigQueryQueryClient = {
+      query: vi.fn().mockResolvedValue([[row]])
+    };
+
+    await expect(
+      getAgentScoreById({
+        agentId: "42",
+        client,
+        config: loadBigQueryConfig(env)
+      })
+    ).resolves.toEqual(row);
+
+    expect(client.query).toHaveBeenCalledWith({
+      query: expect.stringContaining("WHERE agent_id = @agentId"),
+      params: { agentId: "42" },
+      types: { agentId: "STRING" }
+    });
+  });
+
+  it("returns null when the materialized table has no matching agent", async () => {
+    const client: BigQueryQueryClient = {
+      query: vi.fn().mockResolvedValue([[]])
+    };
+
+    await expect(
+      getAgentScoreById({
+        agentId: "404",
+        client,
+        config: loadBigQueryConfig(env)
+      })
+    ).resolves.toBeNull();
+  });
+});
+
+function makeAgentScore(overrides: Partial<AgentScore>): AgentScore {
+  return {
+    agent_id: "101",
+    owner_address: "0x1111111111111111111111111111111111111111",
+    display_name: null,
+    agent_uri: "https://example.com/agent.json",
+    registered_at_block: 19_000_001,
+    registered_at_timestamp: null,
+    identity_registry_address: "0x2222222222222222222222222222222222222222",
+    reputation_registry_address: "0x3333333333333333333333333333333333333333",
+    validation_registry_address: null,
+    feedback_events: 4,
+    positive_feedback_events: 3,
+    negative_feedback_events: 1,
+    validation_requests: 2,
+    validation_responses: 2,
+    successful_validations: 1,
+    declared_x402: true,
+    verified_x402: false,
+    x402_endpoint: "https://example.com/pay",
+    last_x402_verified_at: null,
+    trust_score: 72.5,
+    trust_score_breakdown: { feedback: 40, validation: 20, x402: 12.5 },
+    score_version: "test-v1",
+    updated_at: "2026-06-13T12:00:00.000Z",
+    ...overrides
+  };
+}
