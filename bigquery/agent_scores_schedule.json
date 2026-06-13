@@ -1,0 +1,6 @@
+{
+  "runner": "BigQuery Scheduled Queries",
+  "schedule": "every 15 minutes",
+  "sqlFile": "bigquery/agent_scores_scheduled_query.sql",
+  "targetTable": "PROJECT.DATASET.agent_scores"
+}
