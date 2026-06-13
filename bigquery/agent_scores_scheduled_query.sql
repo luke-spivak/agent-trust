@@ -63,6 +63,9 @@ LANGUAGE js AS r"""
 
 CREATE OR REPLACE TABLE `PROJECT.DATASET.agent_scores`
 CLUSTER BY verified_x402, declared_x402, trust_score
+OPTIONS (
+  expiration_timestamp = NULL
+)
 AS
 WITH scoped_logs AS (
   SELECT
