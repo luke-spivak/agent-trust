@@ -18,6 +18,14 @@ export type AgentUriPreview =
       resolvedUri: string;
     }
   | {
+      state: "invalid";
+      title: string;
+      message: string;
+      sourceUri: string;
+      resolvedUri: string;
+      rawSnippet: string;
+    }
+  | {
       state: "ready";
       title: string;
       description: string | null;
@@ -46,11 +54,13 @@ type UriTarget =
       sourceUri: string;
       resolvedUri: string;
       text: string;
+      expectsJson: boolean;
     }
   | {
       kind: "fetch";
       sourceUri: string;
       resolvedUri: string;
+      expectsJson: boolean;
     }
   | {
       kind: "unsupported";
@@ -58,15 +68,22 @@ type UriTarget =
       message: string;
     };
 
-const IPFS_GATEWAY_ORIGIN = "https://ipfs.io/ipfs/";
+export type AgentUriPreviewOptions = {
+  env?: Record<string, string | undefined>;
+  ipfsGatewayBaseUrl?: string;
+  timeoutMs?: number;
+};
+
+const DEFAULT_IPFS_GATEWAY_BASE_URL = "https://ipfs.io/ipfs/";
 const MAX_RAW_SNIPPET_LENGTH = 1200;
 const PREVIEW_FETCH_TIMEOUT_MS = 2500;
 
 export async function resolveAgentUriPreview(
   agentUri: string | null | undefined,
-  fetcher: FetchLike = fetch
+  fetcher: FetchLike = fetch,
+  options: AgentUriPreviewOptions = {}
 ): Promise<AgentUriPreview> {
-  const target = resolveUriTarget(agentUri);
+  const target = resolveUriTarget(agentUri, options);
 
   if (!target) {
     return {
@@ -86,19 +103,56 @@ export async function resolveAgentUriPreview(
   }
 
   if (target.kind === "data") {
-    return buildReadyPreview(target.sourceUri, target.resolvedUri, target.text);
+    return buildReadyPreview(
+      target.sourceUri,
+      target.resolvedUri,
+      target.text,
+      target.expectsJson
+    );
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PREVIEW_FETCH_TIMEOUT_MS);
+  const timeoutMs = normalizeTimeoutMs(options.timeoutMs);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    const response = await fetcher(target.resolvedUri, {
+    const fetchPromise = fetcher(target.resolvedUri, {
       headers: {
         accept: "application/json, text/plain;q=0.9, */*;q=0.5"
       },
       signal: controller.signal
+    })
+      .then((response) => ({ kind: "response" as const, response }))
+      .catch(() => ({ kind: "fetch-error" as const }));
+    const timeoutPromise = new Promise<{ kind: "timeout" }>((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve({ kind: "timeout" });
+      }, timeoutMs);
     });
+    const result = await Promise.race([fetchPromise, timeoutPromise]);
+
+    if (result.kind === "timeout") {
+      return {
+        state: "error",
+        title: "URI preview unavailable",
+        message: "Metadata could not be resolved before the preview timeout.",
+        sourceUri: target.sourceUri,
+        resolvedUri: target.resolvedUri
+      };
+    }
+
+    if (result.kind === "fetch-error") {
+      return {
+        state: "error",
+        title: "URI preview unavailable",
+        message: "Metadata could not be resolved before the preview timeout.",
+        sourceUri: target.sourceUri,
+        resolvedUri: target.resolvedUri
+      };
+    }
+
+    const { response } = result;
 
     if (!response.ok) {
       return {
@@ -113,7 +167,8 @@ export async function resolveAgentUriPreview(
     return buildReadyPreview(
       target.sourceUri,
       target.resolvedUri,
-      await response.text()
+      await response.text(),
+      target.expectsJson
     );
   } catch {
     return {
@@ -124,11 +179,16 @@ export async function resolveAgentUriPreview(
       resolvedUri: target.resolvedUri
     };
   } finally {
-    clearTimeout(timeout);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }
 
-function resolveUriTarget(agentUri: string | null | undefined): UriTarget | null {
+function resolveUriTarget(
+  agentUri: string | null | undefined,
+  options: AgentUriPreviewOptions
+): UriTarget | null {
   const sourceUri = agentUri?.trim();
 
   if (!sourceUri) {
@@ -136,9 +196,9 @@ function resolveUriTarget(agentUri: string | null | undefined): UriTarget | null
   }
 
   if (sourceUri.toLowerCase().startsWith("data:")) {
-    const text = decodeDataUri(sourceUri);
+    const dataUri = decodeDataUri(sourceUri);
 
-    if (text === null) {
+    if (!dataUri) {
       return {
         kind: "unsupported",
         sourceUri,
@@ -150,11 +210,13 @@ function resolveUriTarget(agentUri: string | null | undefined): UriTarget | null
       kind: "data",
       sourceUri,
       resolvedUri: sourceUri,
-      text
+      text: dataUri.text,
+      expectsJson: dataUri.expectsJson
     };
   }
 
   if (sourceUri.toLowerCase().startsWith("ipfs://")) {
+    const ipfsGatewayBaseUrl = resolveIpfsGatewayBaseUrl(options);
     const ipfsPath = sourceUri.slice("ipfs://".length).replace(/^ipfs\//i, "");
 
     if (!ipfsPath) {
@@ -165,10 +227,19 @@ function resolveUriTarget(agentUri: string | null | undefined): UriTarget | null
       };
     }
 
+    if (!ipfsGatewayBaseUrl) {
+      return {
+        kind: "unsupported",
+        sourceUri,
+        message: "The configured IPFS gateway must be a public https URL."
+      };
+    }
+
     return {
       kind: "fetch",
       sourceUri,
-      resolvedUri: `${IPFS_GATEWAY_ORIGIN}${ipfsPath}`
+      resolvedUri: `${ipfsGatewayBaseUrl}${ipfsPath}`,
+      expectsJson: true
     };
   }
 
@@ -203,11 +274,14 @@ function resolveUriTarget(agentUri: string | null | undefined): UriTarget | null
   return {
     kind: "fetch",
     sourceUri,
-    resolvedUri: parsedUrl.toString()
+    resolvedUri: parsedUrl.toString(),
+    expectsJson: parsedUrl.pathname.toLowerCase().endsWith(".json")
   };
 }
 
-function decodeDataUri(sourceUri: string): string | null {
+function decodeDataUri(
+  sourceUri: string
+): { text: string; expectsJson: boolean } | null {
   const match = /^data:([^,]*),([\s\S]*)$/i.exec(sourceUri);
 
   if (!match) {
@@ -216,13 +290,20 @@ function decodeDataUri(sourceUri: string): string | null {
 
   const metadata = match[1].split(";").map((part) => part.toLowerCase());
   const payload = match[2];
+  const mediaType = metadata[0] ?? "";
 
   try {
     if (metadata.includes("base64")) {
-      return Buffer.from(payload, "base64").toString("utf8");
+      return {
+        text: Buffer.from(payload, "base64").toString("utf8"),
+        expectsJson: mediaType === "application/json"
+      };
     }
 
-    return decodeURIComponent(payload);
+    return {
+      text: decodeURIComponent(payload),
+      expectsJson: mediaType === "application/json"
+    };
   } catch {
     return null;
   }
@@ -231,9 +312,21 @@ function decodeDataUri(sourceUri: string): string | null {
 function buildReadyPreview(
   sourceUri: string,
   resolvedUri: string,
-  rawText: string
+  rawText: string,
+  expectsJson: boolean
 ): AgentUriPreview {
-  const metadata = parseMetadata(rawText);
+  const metadata = parseMetadata(rawText, expectsJson);
+
+  if (metadata.state === "invalid") {
+    return {
+      state: "invalid",
+      title: "Invalid URI metadata",
+      message: "Metadata JSON could not be parsed.",
+      sourceUri,
+      resolvedUri,
+      rawSnippet: truncate(rawText)
+    };
+  }
 
   return {
     state: "ready",
@@ -245,21 +338,38 @@ function buildReadyPreview(
   };
 }
 
-function parseMetadata(rawText: string): {
+function parseMetadata(
+  rawText: string,
+  expectsJson: boolean
+): {
+  state: "ready" | "invalid";
   title: string | null;
   description: string | null;
 } {
+  const trimmedText = rawText.trim();
+  const looksLikeJson = /^[{\[]/.test(trimmedText);
+
   try {
     const parsed = JSON.parse(rawText) as Record<string, unknown>;
 
     return {
+      state: "ready",
       title: readString(parsed.name) ?? readString(parsed.title),
       description: readString(parsed.description)
     };
   } catch {
+    if (expectsJson || looksLikeJson) {
+      return {
+        state: "invalid",
+        title: null,
+        description: null
+      };
+    }
+
     return {
+      state: "ready",
       title: null,
-      description: rawText.trim() ? truncate(rawText, 180) : null
+      description: trimmedText ? truncate(trimmedText, 180) : null
     };
   }
 }
@@ -282,6 +392,40 @@ function truncate(value: string, limit = MAX_RAW_SNIPPET_LENGTH): string {
   }
 
   return `${trimmedValue.slice(0, limit - 3)}...`;
+}
+
+function resolveIpfsGatewayBaseUrl(
+  options: AgentUriPreviewOptions
+): string | null {
+  const rawGateway =
+    options.ipfsGatewayBaseUrl ??
+    options.env?.IPFS_GATEWAY_BASE_URL ??
+    process.env.IPFS_GATEWAY_BASE_URL ??
+    DEFAULT_IPFS_GATEWAY_BASE_URL;
+
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(rawGateway);
+  } catch {
+    return null;
+  }
+
+  if (parsedUrl.protocol !== "https:" || !isPublicHostname(parsedUrl.hostname)) {
+    return null;
+  }
+
+  return parsedUrl.toString().endsWith("/")
+    ? parsedUrl.toString()
+    : `${parsedUrl.toString()}/`;
+}
+
+function normalizeTimeoutMs(timeoutMs: number | undefined): number {
+  if (!timeoutMs || !Number.isFinite(timeoutMs)) {
+    return PREVIEW_FETCH_TIMEOUT_MS;
+  }
+
+  return Math.max(1, Math.trunc(timeoutMs));
 }
 
 function isPublicHostname(hostname: string): boolean {
